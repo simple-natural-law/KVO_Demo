@@ -62,11 +62,70 @@ KVO的第一益处是不必在每次属性更改时都实施自己的方案来�
 
 更安全和更可扩展的方法是使用上下文来确保收到的通知是发送给观察者对象的，而不是发送给观察者对象的父类。
 
-在类中唯一命名的静态变量的地址是一个很好的上下文，并且在父类或者子类中以相同方式选择的上下文不会重叠。可以为整个类选择单独一个上下文，并依赖通知消息中的键路径字符串来确定发生了什么更改。或者，可以为每个被观察的键路径创建不同的上下文来完全绕过字符串比较的需要，从而实现更有效的通知解析。以下代码显示了以这种方式选择的`balance`和`interestRate`属性的示例上下文：
+在类中唯一命名的静态变量的地址是一个很好的上下文，并且在父类或者子类中以相同方式选择的上下文不会重叠。可以为整个类选择单独一个上下文，并依赖通知消息中的键路径字符串来确定更改的内容。或者，可以为每个被观察的键路径创建不同的上下文来完全绕过字符串比较的需要，从而实现更有效的通知解析。以下代码显示了以这种方式选择的`balance`和`interestRate`属性的示例上下文：
 ```
 static void *PersonAccountBalanceContext = &PersonAccountBalanceContext;
 static void *PersonAccountInterestRateContext = &PersonAccountInterestRateContext
 ```
+以下代码演示了`Person`实例如何使用给定的上下文指针将自身注册为`Account`实例的`balance`和`interestRate`属性的观察者。
+```
+- (void)registerAsObserverForAccount:(Account*)account 
+{
+    [account addObserver:self forKeyPath:@"balance" options:(NSKeyValueObservingOptionNew | NSKeyValueObservingOptionOld) context:PersonAccountBalanceContext];
+
+    [account addObserver:self forKeyPath:@"interestRate" options:(NSKeyValueObservingOptionNew | NSKeyValueObservingOptionOld) context:PersonAccountInterestRateContext];
+}
+```
+> **注意**：键值观察方法`addObserver:forKeyPath:options:context:`不会保留对观察者对象、被观察对象或者上下文的强引用，我们应该自己在代码中确保在必要时保留对观察者对象、被观察对象或者上下文的强引用。
+
+
+### 接收更改通知
+
+当对象的一个被观察的属性的值改变时，观察者对象会收到一个`observeValueForKeyPath:ofObject:change:context:`消息。所有的观察者对象都必须实现这个方法。
+
+观察者对象提供了触发通知的键路径、作为相关对象的自身、包含有关更改的详细信息的字典以及观察者为键路径注册时提供的上下文指针。
+
+变更字典中的条目`NSKeyValueChangeKindKey`提供了与所发生更改的类型有关的信息。如果被观察对象的值已经改变，`NSKeyValueChangeKindKey`条目会返回`NSKeyValueChangeSetting`。根据注册观察者时指定的选项，变更字典中的`NSKeyValueChangeOldKey`条目和`NSKeyValueChangeNewKey`条目包含更改之前和之后的属性值。如果属性是一个对象，则直接提供该值。如果属性是一个标量或者结构体，该值会被包装在`NSValue`对象中。
+
+如果被观察的属性是一个to-many relationship，则`NSKeyValueChangeKindKey`条目分别通过返回`NSKeyValueChangeInsertion`、`NSKeyValueChangeRemoval`或者`NSKeyValueChangeReplacement`来表明关系中的对象是否是被插入、移除或者替换的。
+
+变更字典的`NSKeyValueChangeIndexesKey`条目是一个指定关系中已更改的索引的`NSIndexSet`对象。如果在注册观察者时，将`NSKeyValueObservingOptionNew`或者`NSKeyValueObservingOptionOld`指定为选项，变更字典中的`NSKeyValueChangeOldKey`和`NSKeyValueChangeNewKey`条目是一个包含更改之前和之后的相关对象的值的数组。
+
+以下示例显示了`Person`观察者的用于记录属性`balance`和`interestRate`的旧值和新值的`observeValueForKeyPath:ofObject:change:context:`方法实现。
+```
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context 
+{
+    if (context == PersonAccountBalanceContext) {
+        // Do something with the balance…
+
+    } else if (context == PersonAccountInterestRateContext) {
+        // Do something with the interest rate…
+
+    } else {
+        // Any unrecognized context must belong to super
+        [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+    }
+}
+```
+在注册观察者时，如果指定一个`NULL`作为上下文，则将通知的键路径与正在观察的键路径相比较来确定更改的内容。如果对所有被观察的键路径使用单独一个上下文，则首先将通知的上下文与其相比较，找到匹配项后再使用键路径字符串比较来确定具体更改的内容。如果为每个键路径提供唯一的上下文，如上所示，一系列简单的指针比较会同时告诉我们通知是否适用于此观察者以及如果是，则哪个键路径已经更改了。
+
+在任何情况下，当观察者不能确定更改通知是否适用于自己（不能识别上下文或者键路径）时，观察者应该总是调用其父类的`observeValueForKeyPath:ofObject:change:context:`实现。
+
+> **注意**：如果通知传递到类层次结构的顶部，则`NSObject`会抛出一个`NSInternalInconsistencyException`。
+
+### 移除观察者
+
+通过向被观察对象发送一个`removeObserver:forKeyPath:context:`消息并指定观察者对象、键路径和上下文来移除观察者。 以下示例显示了移除`balance`和`interestRate`的观察者`Person`。
+
+```
+- (void)unregisterAsObserverForAccount:(Account*)account 
+{
+    [account removeObserver:self forKeyPath:@"balance" context:PersonAccountBalanceContext];
+
+    [account removeObserver:self forKeyPath:@"interestRate" context:PersonAccountInterestRateContext];
+}
+```
+收到`removeObserver:forKeyPath:context:`消息后，观察者对象将不会接收到指定的键路径和对象的任何`observeValueForKeyPath:ofObject:change:context:`消息。
 
 
 
