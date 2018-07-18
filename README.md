@@ -31,3 +31,42 @@
 KVO的第一益处是不必在每次属性更改时都实施自己的方案来发送通知。其定义良好的基础架构具有框架级别的支持，使得其易于使用——通常不必向项目添加任何代码。此外，基础架构的功能已经齐全，这使得单个属性以及依赖的值支持多个观察者变得容易。
 
 与使用`NSNotificationCenter`的通知不同，没有中心对象为所有观察者提供更改通知。 取而代之的是，在进行更改时将通知直接发送到观察对象。`NSObject`提供了键值观察的基本实现，很少需要覆盖这些方法。
+
+
+## 注册KVO
+
+必须执行以下步骤来使对象能够接收键值观察通知：
+- 使用`addObserver:forKeyPath:options:context:`方法将观察者注册到被观察对象。
+- 在观察者内部实现`observeValueForKeyPath:ofObject:change:context:`方法来接收更改通知消息。
+- 当观察者不需要在接收更改通知消息时，使用`removeObserver:forKeyPath:`方法取消注册观察者。
+
+> **重要**：并非所有类的所有属性都是兼容KVO的。可以按照[KVO兼容](turn)中描述的步骤来确保自己的类是兼容KVO的。
+
+### 注册为观察者
+
+观察者对象首先通过发送一个`addObserver:forKeyPath:options:context:`消息并传递其本身以及被观察的属性的键路径，来向被观察对象注册自己。观察者还指定了一个`options`参数和一个上下文指针来管理通知。
+
+#### Options
+
+选项参数会影响通知中提供的变更字典的内容以及生成通知的方式。
+
+观察者对象可以使用选项`NSKeyValueObservingOptionOld`来接收被观察属性被更改之前的值，以及使用选项`NSKeyValueObservingOptionNew`请求属性的新值。还可以使用按位`OR`组合这些选项，以便同时接收新值和旧值。
+
+选项`NSKeyValueObservingOptionInitial`指示被观察的对象在`addObserver:forKeyPath:options:context:`方法返回之前发送一个**立即更改**通知，可以使用此额外的一次性通知来在观察者对象中设置属性的初始值。
+
+选项`NSKeyValueObservingOptionPrior`指示被观察对象在属性更改之前发送一个通知。如果通知提供的变更字典中包含一个键`NSKeyValueChangeNotificationIsPriorKey`，且键对应的值为一个包装了`YES`的`NSNumber`对象，则表示这是一个**预更改**通知。当观察者对象自己也要兼容KVO并且需要调用依赖于其他对象的被观察属性的属性的一个`willChange...`方法时，可以使用此**预更改**通知。寻常的**已更改**通知生成得太晚，会导致无法及时调用`willChange...`方法。
+
+#### Context
+
+`addObserver:forKeyPath:options:context:`消息中的上下文指针包含将在相应的更改通知中回传给观察者对象的任意数据。可以指定该参数为`NULL`并完全依赖于键路径字符串来确定更改通知的接收者，但是这种方式可能会在观察者对象的父类因为不同的原因也观察相同的键路径时出现问题。
+
+更安全和更可扩展的方法是使用上下文来确保收到的通知是发送给观察者对象的，而不是发送给观察者对象的父类。
+
+在类中唯一命名的静态变量的地址是一个很好的上下文，并且在父类或者子类中以相同方式选择的上下文不会重叠。可以为整个类选择单独一个上下文，并依赖通知消息中的键路径字符串来确定发生了什么更改。或者，可以为每个被观察的键路径创建不同的上下文来完全绕过字符串比较的需要，从而实现更有效的通知解析。以下代码显示了以这种方式选择的`balance`和`interestRate`属性的示例上下文：
+```
+static void *PersonAccountBalanceContext = &PersonAccountBalanceContext;
+static void *PersonAccountInterestRateContext = &PersonAccountInterestRateContext
+```
+
+
+
