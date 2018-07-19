@@ -233,4 +233,29 @@ NSMutableArray *transactions = [account mutableArrayValueForKey:@"transactions"]
 
 ### To-One Relationships
 
+要为一个 to-one relationship 自动触发通知，需要重写`keyPathsForValuesAffectingValueForKey:`方法或者实现一个合适的方法，该方法遵循它为注册依赖的键定义的模式。
+
+例如，一个人的全名取决于名字和姓氏。返回全名的方法可以写成如下：
+```
+- (NSString *)fullName 
+{
+    return [NSString stringWithFormat:@"%@ %@",firstName, lastName];
+}
+```
+当`firstName`和`lastName`属性发生更改时，必须通知观察`fullName`属性的对象，因为它们会影响属性的值。
+
+一种解决方案是重写`keyPathsForValuesAffectingValueForKey:`方法来指定`Person`的`fullName`属性依赖于`firstName`和`lastName`属性。以下示例显示了这种依赖的实现：
+```
++ (NSSet *)keyPathsForValuesAffectingValueForKey:(NSString *)key 
+{
+    NSSet *keyPaths = [super keyPathsForValuesAffectingValueForKey:key];
+
+    if ([key isEqualToString:@"fullName"])
+    {
+        NSArray *affectingKeys = @[@"lastName", @"firstName"];
+        keyPaths = [keyPaths setByAddingObjectsFromArray:affectingKeys];
+    }
+    return keyPaths;
+}
+```
 
