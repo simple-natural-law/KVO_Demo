@@ -127,5 +127,110 @@ static void *PersonAccountInterestRateContext = &PersonAccountInterestRateContex
 ```
 收到`removeObserver:forKeyPath:context:`消息后，观察者对象将不会接收到指定的键路径和对象的任何`observeValueForKeyPath:ofObject:change:context:`消息。
 
+移除观察者时，请记住以下两点：
+- 如果请求移除一个还未被注册的观察者，则会导致一个`NSRangeException`。`removeObserver:forKeyPath:context:`和`addObserver:forKeyPath:options:context:`方法的调用应该相对应，或者如果在应用程序中无法这样做，则将`removeObserver:forKeyPath:context:`调用放在`try/catch`的block中，以便处理潜在异常。
+- 观察者对象被释放时，不会移除其自身来取消注册观察者。被观察对象会继续发送通知，无视观察者的状态。但是，变更通知与其他任何消息一样，发送给一个已经释放的对象，会触发一个内存访问异常。因此，必须确保观察者在从内存中消失之前将其自身移除。
+
+## KVO兼容
+
+为了让特定的属性兼容KVO，一个类必须确保以下内容：
+- 该类的属性必须是兼容KVC的。KVO支持的数据类型与KVC的相同，包括Objective-C对象、标量和结构体。
+- 该类会为属性发出KVO更改通知。
+- 依赖的键已被正确注册（请参看[注册依赖的键](#turn)）。
+
+有两种技术可确保发出通知。默认情况下，`NSObject`类为一个类的兼容KVC的所有属性提供自动支持。通常，如果我们遵循标准的Cocoa编码和命名约定，则可以使用自动更改通知——不必编写任何其他代码。
+
+手动更改通知提供了对何时发出通知的额外控制，但需要为其编写额外的代码。可以通过实现类方法`automaticallyNotifiesObserversForKey:`来控制自类属性的自动通知。
+
+### 自动更改通知
+
+`NSObject`提供了自动键值更改通知的基本实现。自动键值更改通知告知观察者使用键值兼容的访问器和键值编码方法所做的更改。`mutableArrayValueForKey:`、`mutableOrderedSetValueForKey:`和`mutableSetValueForKey:`方法返回的集合代理对象也是支持自动通知的。
+
+以下示例代码会让属性的观察者被告知属性的更改。
+```
+// Call the accessor method.
+[account setName:@"Savings"];
+
+// Use setValue:forKey:.
+[account setValue:@"Savings" forKey:@"name"];
+
+// Use a key path, where 'account' is a kvc-compliant property of 'document'.
+[document setValue:@"Savings" forKeyPath:@"account.name"];
+
+// Use mutableArrayValueForKey: to retrieve a relationship proxy object.
+Transaction *newTransaction = [[Transaction alloc] init];
+NSMutableArray *transactions = [account mutableArrayValueForKey:@"transactions"];
+[transactions addObject:newTransaction];
+```
+
+### 手动更改通知
+
+在某些情况下，可能想要控制通知过程，例如，最大程度地减少触发那些对于应用程序特定原因而言是不必要的通知，或者将大量更改合并到单个通知中。手动更改通知提供执行这些操作的方法。
+
+手动和自动通知不是互斥的。除了现有的自动通知之外，还可以自由发出手动通知。更典型的情况是，我们可能想要完全控制特定属性的通知。在这种情况下，需要覆盖`NSObject`的`automaticallyNotifiesObserversForKey:`的实现。对于想要避免自动通知的属性，子类的`automaticallyNotifiesObserversForKey:`实现应返回`NO`。子类的实现还应该为任何无法识别的键调用`super`。以下示例启用了`balance`属性的手动通知，并允许父类确定所有其他键的通知。
+```
++ (BOOL)automaticallyNotifiesObserversForKey:(NSString *)theKey 
+{
+    BOOL automatic = NO;
+    if ([theKey isEqualToString:@"balance"]) {
+        automatic = NO;
+    }
+    else {
+        automatic = [super automaticallyNotifiesObserversForKey:theKey];
+    }
+    return automatic;
+}
+```
+为了实现手动观察者通知，请在更改值之前调用`willChangeValueForKey:`方法和在更改值之后调用`didChangeValueForKey:`方法。以下示例实现了`balance`属性的手动通知。
+```
+- (void)setBalance:(double)theBalance
+{
+    [self willChangeValueForKey:@"balance"];
+    _balance = theBalance;
+    [self didChangeValueForKey:@"balance"];
+}
+```
+可以通过首先检查值是否已更改来最大限度地减少发送不必要的通知。以下示例验证了`balance`的值，只提供了更改后的通知。
+```
+- (void)setBalance:(double)theBalance 
+{
+    if (theBalance != _balance)
+    {
+        [self willChangeValueForKey:@"balance"];
+        _balance = theBalance;
+        [self didChangeValueForKey:@"balance"];
+    }
+}
+```
+如果单个操作导致多个键发生更改，则必须嵌套更改通知，如下所示。
+```
+- (void)setBalance:(double)theBalance 
+{
+    [self willChangeValueForKey:@"balance"];
+    [self willChangeValueForKey:@"itemChanged"];
+    _balance = theBalance;
+    _itemChanged = _itemChanged+1;
+    [self didChangeValueForKey:@"itemChanged"];
+    [self didChangeValueForKey:@"balance"];
+}
+```
+在一个有序的 to-many relationship 的情况下，不仅必须指定更改的键，还必须指定更改的类型和所涉及对象的索引。更改的类型是一个`NSKeyValueChange`，它的值可以为`NSKeyValueChangeInsertion`、`NSKeyValueChangeRemoval`或者`NSKeyValueChangeReplacement`。受影响对象的索引包含在`NSIndexSet`对象中传递。
+
+```
+- (void)removeTransactionsAtIndexes:(NSIndexSet *)indexes
+{
+    [self willChange:NSKeyValueChangeRemoval valuesAtIndexes:indexes forKey:@"transactions"];
+
+    // Remove the transaction objects at the specified indexes.
+
+    [self didChange:NSKeyValueChangeRemoval valuesAtIndexes:indexes forKey:@"transactions"];
+}
+```
+
+## 注册依赖的键
+
+在许多情况下，一个属性的值取决于另一个对象中的一个或者多个其他属性的值。如果一个属性的值发生更改，那么派生属性的值也应该被标记为更改。如何确保为这些依赖的属性发送键值观察通知取决于关系的基数。
+
+### To-One Relationships
 
 
