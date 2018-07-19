@@ -309,3 +309,14 @@ NSMutableArray *transactions = [account mutableArrayValueForKey:@"transactions"]
 }
 ```
 2. 如果正在使用Core Data，则可以将父项作为其 managed object context 的观察者注册到应用程序的通知中心。父项应该以类似于键值观察的方式响应子项们发出的相关变更通知。
+
+
+## KVO实现细节
+
+自动键值观察是使用 isa-swizzling 技术实现的。
+
+`isa`指针指向对象的类，该类维护着一个调度表，该调度表基本上包含指向该类实现的方法的指针以及其他数据。
+
+当为对象的一个属性注册观察者时，被观察对象的`isa`指针被修改并指向一个中间类而不是真正的类。因此，`isa`指针的值不一定反映实例实际的类。
+
+绝不应该依赖`isa`指针来判断类成员资格。相反，应该使用`class`方法来判断对象实例的类。
