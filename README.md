@@ -233,7 +233,7 @@ NSMutableArray *transactions = [account mutableArrayValueForKey:@"transactions"]
 
 ### To-One Relationships
 
-要为一个 to-one relationship 自动触发通知，需要重写`keyPathsForValuesAffectingValueForKey:`方法或者实现一个合适的方法，该方法遵循它为注册依赖的键定义的模式。
+要为一个 to-one relationship 自动触发通知，需要重写`keyPathsForValuesAffectingValueForKey:`方法或者实现一个合适的方法，该方法遵循为注册依赖的键定义的格式。
 
 例如，一个人的全名取决于名字和姓氏。返回全名的方法可以写成如下：
 ```
@@ -258,4 +258,54 @@ NSMutableArray *transactions = [account mutableArrayValueForKey:@"transactions"]
     return keyPaths;
 }
 ```
+在自定义实现中通常应该调用`super`并返回一个集合，以免干扰父类中的此方法的实现。
 
+还可以通过实现一个遵循命名约定`keyPathsForValuesAffecting<Key>`的类方法来实现相同的结果，其中`<Key>`是依赖于值的属性的名称（首字母大写）。之前示例中的代码可以使用这种格式编写成一个名为`keyPathsForValuesAffectingFullName`的类方法。
+```
++ (NSSet *)keyPathsForValuesAffectingFullName 
+{
+    return [NSSet setWithObjects:@"lastName", @"firstName", nil];
+}
+```
+当使用类别往现有类中添加一个计算属性时，不能覆盖`keyPathsForValuesAffectingValueForKey:`方法，因为不支持在类别中覆盖方法。在这种情况下，实现一个`keyPathsForValuesAffecting<Key>`类方法来使用此机制。
+
+> **注意**：无法通过实现`keyPathsForValuesAffectingValueForKey:`方法来配置 to-many relationships 的依赖关系。取而代之的是，必须观察 to-many relationships 中每个对象的相应属性，并通过自己更新依赖的键来响应其值的更改。
+
+### To-Many Relationships
+
+`keyPathsForValuesAffectingValueForKey:`方法不支持包含一个 to-many relationship 的键路径。例如，假设存在一个`Department`对象，该对象有一个与`Employee`（员工）对象具有 to-many relationship 的`employees` 集合属性，`Employee`对象有一个`salary`（薪水）属性。我们可能希望`Department`（部门）对象有一个`totalSalary`（薪水总额）属性，该属性的值取决于`employees`集合中所有`Employee`对象的`salary`。这种情况是无法使用`keyPathsForValuesAffectingTotalSalary`方法并将`employees.salary`作为键返回的。
+
+在这种情况下，有两种可能的解决方案：
+1. 使用KVO将父项（在此示例中为`Department`）注册为所有子项（本示例中的`Employee`）的相关属性（`salary`属性）的观察者。在`employees`集合中添加和删除`Employee`子对象时，必须注册和取消注册`Department`父对象作为观察者。在`observeValueForKeyPath:ofObject:change:context:`方法中，更新依赖值来响应更改，如下所示：
+```
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context 
+{
+    if (context == totalSalaryContext) 
+    {
+        [self updateTotalSalary];
+    }
+    else
+        // deal with other observations and/or invoke super...
+}
+
+- (void)updateTotalSalary 
+{
+    [self setTotalSalary:[self valueForKeyPath:@"employees.@sum.salary"]];
+}
+
+- (void)setTotalSalary:(NSNumber *)newTotalSalary 
+{
+    if (totalSalary != newTotalSalary)
+    {
+        [self willChangeValueForKey:@"totalSalary"];
+        _totalSalary = newTotalSalary;
+        [self didChangeValueForKey:@"totalSalary"];
+    }
+}
+
+- (NSNumber *)totalSalary 
+{
+    return _totalSalary;
+}
+```
+2. 如果正在使用Core Data，则可以将父项作为其 managed object context 的观察者注册到应用程序的通知中心。父项应该以类似于键值观察的方式响应子项们发出的相关变更通知。
