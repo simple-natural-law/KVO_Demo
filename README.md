@@ -1,11 +1,11 @@
-# KVO键值观察（Key-Value Observing）
+# KVO
 
 
 ## 引言
 
-键值观察提供了一种机制以允许对象被告知其他对象的特定属性的更改，它对应用程序中的模型和控制器层之间的通信特别有用。在OS X中，控制器层绑定技术严重依赖于键值观察。控制器对象通常观察模型对象的属性，视图对象通过控制器观察模型对象的属性。 此外，模型对象还可以观察其他模型对象（通常用于确定依赖的值何时改变），甚至其自身（再次确定依赖的值何时改变）。
+键值观察（KVO）提供了一种机制以允许对象被告知其他对象的特定属性的更改，它对应用程序中的模型和控制器层之间的通信特别有用。在OS X中，控制器层绑定技术严重依赖于键值观察。控制器对象通常观察模型对象的属性，视图对象通过控制器观察模型对象的属性。 此外，模型对象还可以观察其他模型对象（通常用于确定依赖的值何时改变），甚至其自身（再次确定依赖的值何时改变）。
 
-可以观察 simple attributes、to-one relationships 和 to-many relationships 这三种类型的属性（关于属性类型的描述，请参看[KVC键值编码（Key-Value Coding）](https://www.jianshu.com/p/13a17bcea48b)）。to-many relationships 属性的观察者被告知所做的更改的类型以及更改涉及哪些对象。
+可以观察 simple attributes、to-one relationships 和 to-many relationships 这三种类型的属性（关于属性类型的描述，请参看[KVC](https://www.jianshu.com/p/13a17bcea48b)）。to-many relationships 属性的观察者被告知所做的更改的类型以及更改涉及哪些对象。
 
 一个简单的例子说明了KVO如何在应用程序中发挥作用的。假设一个`Person`对象和一个`Account`对象代表某个人在银行的储蓄账户，那么`Person`实例可能需要知道`Account`实例的某些详情合适发生变化，例如余额和利率。
 
